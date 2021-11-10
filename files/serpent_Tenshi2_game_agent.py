@@ -1,3 +1,4 @@
+import re
 from serpent.game_agent import GameAgent
 import collections
 from serpent.input_controller import KeyboardKey
@@ -224,8 +225,6 @@ class Environment:
         self.input_controller.handle_keys([])
 
 
-import gc
-
 from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 
 
@@ -253,10 +252,10 @@ class SerpentTenshi2GameAgent(GameAgent):
     def _reset_game_state(self):
         self.game_state = {
             "hp": collections.deque(np.full((8,), 4), maxlen=8),
-            "power": collections.deque(np.full((8,), 1), maxlen=8),
+            "power": 1.0,
             "aura": collections.deque(np.full((8,), 100), maxlen=8),
-            "score_multiplier": collections.deque(np.full((8,), 1.00), maxlen=8),
-            "score": collections.deque(np.full((8,), 0), maxlen=8),
+            "score_multiplier": 1.00,
+            "score": 0,
             "run_reward": 0,
             "current_run": 1,
             "current_run_steps": 0,
@@ -275,20 +274,6 @@ class SerpentTenshi2GameAgent(GameAgent):
 
 
     def setup_play(self):
-        
-        
-        '''input_mapping = {
-            "UP": [KeyboardKey.KEY_UP],
-            "DOWN": [KeyboardKey.KEY_DOWN],
-            "LEFT": [KeyboardKey.KEY_LEFT],
-            "RIGHT": [KeyboardKey.KEY_RIGHT],
-            #"UP-LEFT": [KeyboardKey.KEY_UP, KeyboardKey.KEY_LEFT, KeyboardKey.KEY_Z],
-            #"UP-RIGHT": [KeyboardKey.KEY_UP, KeyboardKey.KEY_RIGHT, KeyboardKey.KEY_Z],
-            #"DOWN-LEFT": [KeyboardKey.KEY_DOWN, KeyboardKey.KEY_LEFT, KeyboardKey.KEY_Z],
-            #"DOWN-RIGHT": [KeyboardKey.KEY_DOWN, KeyboardKey.KEY_RIGHT, KeyboardKey.KEY_Z],
-            "Shoot" : [KeyboardKey.KEY_Z],
-            "Aura": [KeyboardKey.KEY_X]
-        }'''
     
         self.game_inputs = [
             {
@@ -298,9 +283,6 @@ class SerpentTenshi2GameAgent(GameAgent):
             }
         ]
 
-
-        #network_spec = [{"type": "conv2d", "size": 2}, {'type': 'dense', 'size': 20}]
-
         self.agent = RainbowDQNAgent("Tenshi", game_inputs=self.game_inputs)
         
         
@@ -308,36 +290,16 @@ class SerpentTenshi2GameAgent(GameAgent):
         #self.agent.add_human_observations_to_replay_memory()
         
 
-    '''def setup_play_local(self):
-        context_classifier_path = 'C:/Users/giova/SerpentAI/plugins/SerpentTenshi2GameAgentPlugin/files/ml_models/context_classifier.model'
-        context_classifier = CNNInceptionV3ContextClassifier(input_shape=(1920, 1080, 3))
-        context_classifier.prepare_generators()
-        context_classifier.load_classifier(context_classifier_path)
-        self.machine_learning_models['context_classifier'] = context_classifier'''   
-
-
-    def handle_play(self, game_frame):
-        
-        #self._reset_game_state()
-        
-        gc.disable()
-        
-        import pyautogui
-        pyautogui.press('z')
-        
-        #context = self.machine_learning_models['context_classifier'].predict(game_frame.game)
+    def handle_play(self, game_frame):     
 
         hp = self._measure_hp(game_frame)
-        power = self._measure_power(game_frame)
         aura = self._measure_aura(game_frame)
-        mult_score = self._measure_mscore(game_frame)
-        score = self._measure_score(game_frame)
 
         self.game_state['hp'].appendleft(hp)
-        self.game_state['power'].appendleft(power)
+        self.game_state['power'] = self._measure_power(game_frame)
         self.game_state['aura'].appendleft(aura)
-        self.game_state['score_multiplier'].appendleft(mult_score)
-        self.game_state['score'].appendleft(score)
+        self.game_state['score_multiplier'] = self._measure_mscore(game_frame)
+        self.game_state['score'] = self._measure_score(game_frame)
 
         reward = self._reward(self.game_state, game_frame)
         if reward is None:
@@ -362,78 +324,159 @@ class SerpentTenshi2GameAgent(GameAgent):
         
         serpent.utilities.clear_terminal()
         print(f"Current HP: {self.game_state['hp'][0]}")
-        print(f"Current Power: {self.game_state['power'][0]}")
+        print(f"Current Power: {self.game_state['power']}")
         print(f"Current Aura: {self.game_state['aura'][0]}")
-        print(f"Current Score: {self.game_state['score'][0]}")
-        print(f"Current Score Multiplier: {self.game_state['score_multiplier'][0]}")
+        print(f"Current Score: {self.game_state['score']}")
+        print(f"Current Score Multiplier: {self.game_state['score_multiplier']}")
         print(f"Current Reward: {self.game_state['run_reward']}")
         
             
     def _measure_hp(self, game_frame):
-        area = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions['Lifes'])
+        score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Lifes"])
+            
+        score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
+            
+        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5,config='--psm 6 -c tessedit_char_blacklist=-')
 
-        hp = 0
-        max_ssim = 0
-        for name, sprite in self.game.sprites.items():
-            for i in range(sprite.image_data.shape[3]):
-                ssim = skimage.measure.compare_ssim(area, np.squeeze(sprite.image_data[..., :3, i]), multichannel=True)
-                    
-                if ssim > max_ssim:
-                    max_ssim = ssim
-                    hp = int(name[-1])
-                        
-                    return hp
+        score = score.replace('S', '5')
+        score = score.replace('s', '8')
+        score = score.replace('e', '2')
+        score = score.replace('O', '0')
+        score = score.replace('B', '8')
+        score = score.replace('I', '1')
+        score = score.replace('l', '1')
+        score = score.replace("o", "4")
+        score = score.replace("b", "4")
+
+        score = re.sub(r'[^0-9]\.', '', score)
+
+        self.game_state['current_run_hp'] = score
+
+        try:
+            return float(score)
+        except ValueError:
+            return 1.0
 
     def _measure_score(self, game_frame):
         score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Score"])
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5)
-            
+        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=.-')
+        
+        # Fixing OCR flaws. Unfortunately, both 5 and 9 are recognized as S.
+
+        score = score.replace('S', '5')
+        score = score.replace('s', '8')
+        score = score.replace('e', '2')
+        score = score.replace('O', '0')
+        score = score.replace('B', '8')
+        score = score.replace('I', '1')
+        score = score.replace('l', '1')
+        score = score.replace("o", "4")
+        score = score.replace("b", "4")
+
+        score = re.sub(r'[^0-9]', '', score)
+
         self.game_state['current_run_score'] = score
 
-        return score
+        try:
+            return int(score)
+        except ValueError:
+            return 1
 
     def _measure_power(self, game_frame):
         score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Power"])
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5)
-            
+        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
+
+        score = score.replace('S', '5')
+        score = score.replace('s', '8')
+        score = score.replace('e', '2')
+        score = score.replace('O', '0')
+        score = score.replace('B', '8')
+        score = score.replace('I', '1')
+        score = score.replace('l', '1')
+        score = score.replace("o", "4")
+        score = score.replace("b", "4")
+
+        score = re.sub(r'[^0-9]\.', '', score)
+
         self.game_state['current_run_power'] = score
 
-        return score
+        try:
+            score = float(score)
+            if score > 5.0:
+                return 5.0
+            else:
+                return score
+        except ValueError:
+            return 5.0
         
     def _measure_aura(self, game_frame):
         score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Aura"])
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5)
+        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_blacklist=-')
+
+        score = score.replace('S', '5')
+        score = score.replace('s', '8')
+        score = score.replace('e', '2')
+        score = score.replace('O', '0')
+        score = score.replace('B', '8')
+        score = score.replace('I', '1')
+        score = score.replace('l', '1')
+        score = score.replace("o", "4")
+        score = score.replace("b", "4")
+
+        score = re.sub(r'[^0-9]', '', score)
             
         self.game_state['current_run_aura'] = score
 
-        return score
+        try:
+            score = int(score)
+            if score > 200:
+                return 200
+            else:
+                return score
+        except ValueError:
+            return 200
 
     def _measure_mscore(self, game_frame):
         score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Multiplier_score"])
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
 
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5)
-            
+        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
+
+        score = score.replace('S', '5')
+        score = score.replace('s', '8')
+        score = score.replace('e', '2')
+        score = score.replace('O', '0')
+        score = score.replace('B', '8')
+        score = score.replace('I', '1')
+        score = score.replace('l', '1')
+        score = score.replace("o", "4")
+        score = score.replace("b", "4")
+
+        score = re.sub(r'[^0-9]', '', score)
+
         self.game_state['current_run_score_mult'] = score
 
-        return score
+        try:
+            return float(score)
+        except ValueError:
+            return 1.00
 
 
     def _reward(self, game_state, game_frame):
         if self.game_state['hp'][0] is None:
             pass
         elif self.game_state['hp'][0] >= 1.00:
-            return (self.game_state['score'][0] * self.game_state['score_multiplier'][0]) + (self.game_state['power'][0] * (self.game_state['aura'][0]/100))
+            return (self.game_state['score'] * self.game_state['score_multiplier']) + (self.game_state['power'] * (self.game_state['aura'][0]/100))
         else:
-            return -(1000000/self.game_state['score'][0] * self.game_state['score_multiplier'][0])
+            return -(1000000/(self.game_state['score'] * self.game_state['score_multiplier']))
   
