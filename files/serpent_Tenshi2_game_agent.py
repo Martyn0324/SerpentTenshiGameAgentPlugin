@@ -1,7 +1,6 @@
-import re
+from re import sub
 from serpent.game_agent import GameAgent
 import collections
-from serpent.input_controller import KeyboardKey
 import serpent.utilities
 from serpent.sprite_locator import SpriteLocator
 import numpy as np
@@ -12,8 +11,7 @@ import skimage.measure
 import serpent.cv
 import serpent.utilities
 import serpent.ocr
-
-import time
+from serpent.sprite import Sprite
 
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
 from serpent.input_controller import MouseEvent, MouseEvents
@@ -31,85 +29,7 @@ class Environment:
         self.game_api = game_api
         self.input_controller = input_controller
 
-        self.game_state = dict()
-
         self.analytics_client = AnalyticsClient(project_key=config["analytics"]["topic"])
-
-        self.reset()
-
-    @property
-    def episode_duration(self):
-        return time.time() - self.episode_started_at
-
-    @property
-    def episode_over(self):
-        if self.episode_maximum_steps is not None:
-            return self.episode_steps >= self.episode_maximum_steps
-        else:
-            return False
-
-    @property
-    def new_episode_data(self):
-        return dict()
-
-    @property
-    def end_episode_data(self):
-        return dict()
-
-    def new_episode(self, maximum_steps=None, reset=False):
-        self.episode_steps = 0
-        self.episode_maximum_steps = maximum_steps
-
-        self.episode_started_at = time.time()
-
-        if not reset:
-            self.episode += 1
-
-        self.analytics_client.track(
-            event_key="NEW_EPISODE",
-            data={
-                "episode": self.episode,
-                "episode_data": self.new_episode_data,
-                "maximum_steps": self.episode_maximum_steps
-            }
-        )
-
-    def end_episode(self):
-        self.analytics_client.track(
-            event_key="END_EPISODE",
-            data={
-                "episode": self.episode,
-                "episode_data": self.end_episode_data,
-                "episode_steps": self.episode_steps,
-                "maximum_steps": self.episode_maximum_steps
-            }
-        )
-
-    def episode_step(self):
-        self.episode_steps += 1
-        self.total_steps += 1
-
-        self.analytics_client.track(
-            event_key="EPISODE_STEP",
-            data={
-                "episode": self.episode,
-                "episode_step": self.episode_steps,
-                "total_steps": self.total_steps
-            }
-        )
-
-    def reset(self):
-        self.total_steps = 0
-
-        self.episode = 0
-        self.episode_steps = 0
-
-        self.episode_maximum_steps = None
-
-        self.episode_started_at = None
-
-    def update_game_state(self, game_frame):
-        raise NotImplementedError()
 
     def perform_input(self, actions):
         discrete_keyboard_keys = set()
@@ -160,11 +80,6 @@ class Environment:
                             self.input_controller.click_down(button=event.button)
                         elif event.event == MouseEvents.CLICK_UP:
                             self.input_controller.click_up(button=event.button)
-                        elif event.event == MouseEvents.CLICK_SCREEN_REGION:
-                            screen_region = event.kwargs["screen_region"]
-                            self.input_controller.click_screen_region(button=event.button, screen_region=screen_region)
-                        elif event.event == MouseEvents.SCROLL:
-                            self.input_controller.scroll(direction=event.direction)
 
                         self.analytics_client.track(
                             event_key="GAME_INPUT",
@@ -201,25 +116,8 @@ class Environment:
                     )
                 elif isinstance(game_input[0], MouseEvent):
                     for event in game_input:
-                        if event.event == MouseEvents.CLICK_SCREEN_REGION:
-                            screen_region = event.kwargs["screen_region"]
-                            self.input_controller.click_screen_region(button=event.button, screen_region=screen_region)
-                        elif event.event == MouseEvents.MOVE:
+                        if event.event == MouseEvents.MOVE:
                             self.input_controller.move(x=event.x, y=event.y)
-                        elif event.event == MouseEvents.MOVE_RELATIVE:
-                            self.input_controller.move(x=event.x, y=event.y, absolute=False)
-                        elif event.event == MouseEvents.DRAG_START:
-                            screen_region = event.kwargs.get("screen_region")
-                            coordinates = self.input_controller.ratios_to_coordinates(value, screen_region=screen_region)
-
-                            self.input_controller.move(x=coordinates[0], y=coordinates[1], duration=0.1)
-                            self.input_controller.click_down(button=event.button)
-                        elif event.event == MouseEvents.DRAG_END:
-                            screen_region = event.kwargs.get("screen_region")
-                            coordinates = self.input_controller.ratios_to_coordinates(value, screen_region=screen_region)
-
-                            self.input_controller.move(x=coordinates[0], y=coordinates[1], duration=0.1)
-                            self.input_controller.click_up(button=event.button)
 
     def clear_input(self):
         self.input_controller.handle_keys([])
@@ -227,7 +125,15 @@ class Environment:
 
 from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 
-
+sprite_locator = SpriteLocator()
+retry = skimage.io.imread('D:/Python/datasets/Jigoku_retry.png')[..., np.newaxis]
+ranking = skimage.io.imread('D:/Python/datasets/jk_ranking.png')[..., np.newaxis]
+hint = skimage.io.imread('D:/Python/datasets/jk_hint.png')[..., np.newaxis]
+menu = skimage.io.imread('D:/Python/datasets/jk_menu.png')[..., np.newaxis]
+sprite_retry = Sprite("Retry", image_data=retry)
+sprite_ranking = Sprite("Ranking", image_data=ranking)
+sprite_hint = Sprite("Hint", image_data=hint)
+sprite_menu = Sprite("Damn it, Hakisa! Just play!", image_data=menu)
 import enum
 
 
@@ -279,7 +185,8 @@ class SerpentTenshi2GameAgent(GameAgent):
             {
                 "name": "CONTROLS",
                 "control_type": InputControlTypes.DISCRETE,
-                "inputs": self.game.api.combine_game_inputs(["MOVEMENT", "SHOOTING"])
+                "inputs": self.game.api.combine_game_inputs(["MOVEMENT", "SHOOTING"]),
+                "value": None
             }
         ]
 
@@ -290,7 +197,22 @@ class SerpentTenshi2GameAgent(GameAgent):
         #self.agent.add_human_observations_to_replay_memory()
         
 
-    def handle_play(self, game_frame):     
+    def handle_play(self, game_frame):
+        import pyautogui 
+        search_retry = sprite_locator.locate(sprite=sprite_retry, game_frame=game_frame)
+        search_hint = sprite_locator.locate(sprite=sprite_hint, game_frame=game_frame)
+        if search_retry != None or search_hint != None:
+            pyautogui.press('z')
+        
+        search_ranking = sprite_locator.locate(sprite=sprite_ranking, game_frame=game_frame)
+        if search_ranking != None:
+            pyautogui.press('Enter')
+
+        search_menu = sprite_locator.locate(sprite=sprite_menu, game_frame=game_frame)
+        if search_menu != None:
+            import time
+            pyautogui.press('Enter', presses=3, interval=1.5)
+            time.sleep(2.5)
 
         hp = self._measure_hp(game_frame)
         aura = self._measure_aura(game_frame)
@@ -318,7 +240,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         Environment.perform_input(self, actions=agent_actions)
 
         # Saving model each N steps:
-        if self.agent.current_step % 5000 == 0:
+        if self.agent.current_step % 1000 == 0:
             self.agent.save_model()
 
         
@@ -329,6 +251,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         print(f"Current Score: {self.game_state['score']}")
         print(f"Current Score Multiplier: {self.game_state['score_multiplier']}")
         print(f"Current Reward: {self.game_state['run_reward']}")
+        print(f"Current Run steps: {self.game_state['current_run_steps']}")
         
             
     def _measure_hp(self, game_frame):
@@ -348,7 +271,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         score = score.replace("o", "4")
         score = score.replace("b", "4")
 
-        score = re.sub(r'[^0-9]\.', '', score)
+        score = sub(r'[^0-9]\.', '', score)
 
         self.game_state['current_run_hp'] = score
 
@@ -376,7 +299,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         score = score.replace("o", "4")
         score = score.replace("b", "4")
 
-        score = re.sub(r'[^0-9]', '', score)
+        score = sub(r'[^0-9]', '', score)
 
         self.game_state['current_run_score'] = score
 
@@ -402,7 +325,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         score = score.replace("o", "4")
         score = score.replace("b", "4")
 
-        score = re.sub(r'[^0-9]\.', '', score)
+        score = sub(r'[^0-9]\.', '', score)
 
         self.game_state['current_run_power'] = score
 
@@ -432,7 +355,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         score = score.replace("o", "4")
         score = score.replace("b", "4")
 
-        score = re.sub(r'[^0-9]', '', score)
+        score = sub(r'[^0-9]', '', score)
             
         self.game_state['current_run_aura'] = score
 
@@ -462,7 +385,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         score = score.replace("o", "4")
         score = score.replace("b", "4")
 
-        score = re.sub(r'[^0-9]', '', score)
+        score = sub(r'[^0-9]\.', '', score)
 
         self.game_state['current_run_score_mult'] = score
 
@@ -479,4 +402,4 @@ class SerpentTenshi2GameAgent(GameAgent):
             return (self.game_state['score'] * self.game_state['score_multiplier']) + (self.game_state['power'] * (self.game_state['aura'][0]/100))
         else:
             return -(1000000/(self.game_state['score'] * self.game_state['score_multiplier']))
-  
+ 
