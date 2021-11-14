@@ -12,6 +12,7 @@ import serpent.cv
 import serpent.utilities
 import serpent.ocr
 from serpent.sprite import Sprite
+import time
 
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
 from serpent.input_controller import MouseEvent, MouseEvents
@@ -142,6 +143,7 @@ class InputControlTypes(enum.Enum):
     CONTINUOUS = 1
 
 
+
 class SerpentTenshi2GameAgent(GameAgent):
 
     def __init__(self, **kwargs):
@@ -161,7 +163,7 @@ class SerpentTenshi2GameAgent(GameAgent):
             "power": 1.0,
             "aura": collections.deque(np.full((8,), 100), maxlen=8),
             "score_multiplier": 1.00,
-            "score": 0,
+            "score": 1,
             "run_reward": 0,
             "current_run": 1,
             "current_run_steps": 0,
@@ -210,7 +212,6 @@ class SerpentTenshi2GameAgent(GameAgent):
 
         search_menu = sprite_locator.locate(sprite=sprite_menu, game_frame=game_frame)
         if search_menu != None:
-            import time
             pyautogui.press('Enter', presses=3, interval=1.5)
             time.sleep(2.5)
 
@@ -231,16 +232,18 @@ class SerpentTenshi2GameAgent(GameAgent):
 
         self.game_state['run_reward'] = reward
         
-        
+        #self.agent.set_mode(0) # 0 = Observe, 1 = Train, 2 = Evaluate
         self.agent.observe(reward=reward)
         
         frame_buffer = FrameGrabber.get_frames([0, 2, 4, 6], frame_type="PIPELINE")
         agent_actions = self.agent.generate_actions(frame_buffer)
 
         Environment.perform_input(self, actions=agent_actions)
+        #time.sleep(1)
+        #Environment.clear_input(self)
 
         # Saving model each N steps:
-        if self.agent.current_step % 1000 == 0:
+        if self.agent.current_step % 100 == 0:
             self.agent.save_model()
 
         
@@ -252,6 +255,8 @@ class SerpentTenshi2GameAgent(GameAgent):
         print(f"Current Score Multiplier: {self.game_state['score_multiplier']}")
         print(f"Current Reward: {self.game_state['run_reward']}")
         print(f"Current Run steps: {self.game_state['current_run_steps']}")
+
+        self.game_state['current_run_steps'] += 1
         
             
     def _measure_hp(self, game_frame):
@@ -259,19 +264,23 @@ class SerpentTenshi2GameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5,config='--psm 6 -c tessedit_char_blacklist=-')
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5,config='--psm 6 -c tessedit_char_blacklist=-')
+            score = score.replace('S', '5')
+            score = score.replace('s', '8')
+            score = score.replace('e', '2')
+            score = score.replace('O', '0')
+            score = score.replace('B', '8')
+            score = score.replace('I', '1')
+            score = score.replace('l', '1')
+            score = score.replace("o", "4")
+            score = score.replace("b", "4")
+            score = score.replace("A", "4")
 
-        score = score.replace('S', '5')
-        score = score.replace('s', '8')
-        score = score.replace('e', '2')
-        score = score.replace('O', '0')
-        score = score.replace('B', '8')
-        score = score.replace('I', '1')
-        score = score.replace('l', '1')
-        score = score.replace("o", "4")
-        score = score.replace("b", "4")
-
-        score = sub(r'[^0-9]\.', '', score)
+            score = sub(r'[^0-9]\.', '', score)
+        
+        except ValueError:
+            score = 1.0
 
         self.game_state['current_run_hp'] = score
 
@@ -285,26 +294,33 @@ class SerpentTenshi2GameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=.-')
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=.-')
         
-        # Fixing OCR flaws. Unfortunately, both 5 and 9 are recognized as S.
+            # Fixing OCR flaws. Unfortunately, both 5 and 9 are recognized as S.
 
-        score = score.replace('S', '5')
-        score = score.replace('s', '8')
-        score = score.replace('e', '2')
-        score = score.replace('O', '0')
-        score = score.replace('B', '8')
-        score = score.replace('I', '1')
-        score = score.replace('l', '1')
-        score = score.replace("o", "4")
-        score = score.replace("b", "4")
+            score = score.replace('S', '5')
+            score = score.replace('s', '8')
+            score = score.replace('e', '2')
+            score = score.replace('O', '0')
+            score = score.replace('B', '8')
+            score = score.replace('I', '1')
+            score = score.replace('l', '1')
+            score = score.replace("o", "4")
+            score = score.replace("b", "4")
 
-        score = sub(r'[^0-9]', '', score)
+            score = sub(r'[^0-9]', '', score)
+        
+        except ValueError:
+            score = 1.00
 
         self.game_state['current_run_score'] = score
 
         try:
-            return int(score)
+            score = int(score)
+            if score == 0:
+                score = 1
+            return score
         except ValueError:
             return 1
 
@@ -313,19 +329,23 @@ class SerpentTenshi2GameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
 
-        score = score.replace('S', '5')
-        score = score.replace('s', '8')
-        score = score.replace('e', '2')
-        score = score.replace('O', '0')
-        score = score.replace('B', '8')
-        score = score.replace('I', '1')
-        score = score.replace('l', '1')
-        score = score.replace("o", "4")
-        score = score.replace("b", "4")
+            score = score.replace('S', '5')
+            score = score.replace('s', '8')
+            score = score.replace('e', '2')
+            score = score.replace('O', '0')
+            score = score.replace('B', '8')
+            score = score.replace('I', '1')
+            score = score.replace('l', '1')
+            score = score.replace("o", "4")
+            score = score.replace("b", "4")
 
-        score = sub(r'[^0-9]\.', '', score)
+            score = sub(r'[^0-9]\.', '', score)
+        
+        except ValueError:
+            score = 1.0
 
         self.game_state['current_run_power'] = score
 
@@ -343,19 +363,23 @@ class SerpentTenshi2GameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_blacklist=-')
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_blacklist=-')
 
-        score = score.replace('S', '5')
-        score = score.replace('s', '8')
-        score = score.replace('e', '2')
-        score = score.replace('O', '0')
-        score = score.replace('B', '8')
-        score = score.replace('I', '1')
-        score = score.replace('l', '1')
-        score = score.replace("o", "4")
-        score = score.replace("b", "4")
+            score = score.replace('S', '5')
+            score = score.replace('s', '8')
+            score = score.replace('e', '2')
+            score = score.replace('O', '0')
+            score = score.replace('B', '8')
+            score = score.replace('I', '1')
+            score = score.replace('l', '1')
+            score = score.replace("o", "4")
+            score = score.replace("b", "4")
 
-        score = sub(r'[^0-9]', '', score)
+            score = sub(r'[^0-9]', '', score)
+        
+        except ValueError:
+            score = 0
             
         self.game_state['current_run_aura'] = score
 
@@ -373,24 +397,31 @@ class SerpentTenshi2GameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
 
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 6 -c tessedit_char_blacklist=-')
 
-        score = score.replace('S', '5')
-        score = score.replace('s', '8')
-        score = score.replace('e', '2')
-        score = score.replace('O', '0')
-        score = score.replace('B', '8')
-        score = score.replace('I', '1')
-        score = score.replace('l', '1')
-        score = score.replace("o", "4")
-        score = score.replace("b", "4")
+            score = score.replace('S', '5')
+            score = score.replace('s', '8')
+            score = score.replace('e', '2')
+            score = score.replace('O', '0')
+            score = score.replace('B', '8')
+            score = score.replace('I', '1')
+            score = score.replace('l', '1')
+            score = score.replace("o", "4")
+            score = score.replace("b", "4")
 
-        score = sub(r'[^0-9]\.', '', score)
+            score = sub(r'[^0-9]\.', '', score)
+        
+        except ValueError:
+            score = 1.00
 
         self.game_state['current_run_score_mult'] = score
 
         try:
-            return float(score)
+            score = float(score)
+            if score == 0:
+                score = 1.00
+            return score
         except ValueError:
             return 1.00
 
@@ -402,4 +433,4 @@ class SerpentTenshi2GameAgent(GameAgent):
             return (self.game_state['score'] * self.game_state['score_multiplier']) + (self.game_state['power'] * (self.game_state['aura'][0]/100))
         else:
             return -(1000000/(self.game_state['score'] * self.game_state['score_multiplier']))
- 
+  
