@@ -2,7 +2,6 @@ from re import sub
 from serpent.game_agent import GameAgent
 import collections
 import serpent.utilities
-from serpent.sprite_locator import SpriteLocator
 import numpy as np
 from datetime import datetime
 from serpent.frame_grabber import FrameGrabber
@@ -11,8 +10,7 @@ import skimage.measure
 import serpent.cv
 import serpent.utilities
 import serpent.ocr
-from serpent.sprite import Sprite
-import time
+#import time
 
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
 from serpent.input_controller import MouseEvent, MouseEvents
@@ -126,15 +124,6 @@ class Environment:
 
 from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 
-sprite_locator = SpriteLocator()
-retry = skimage.io.imread('D:/Python/datasets/Jigoku_retry.png')[..., np.newaxis]
-ranking = skimage.io.imread('D:/Python/datasets/jk_ranking.png')[..., np.newaxis]
-hint = skimage.io.imread('D:/Python/datasets/jk_hint.png')[..., np.newaxis]
-menu = skimage.io.imread('D:/Python/datasets/jk_menu.png')[..., np.newaxis]
-sprite_retry = Sprite("Retry", image_data=retry)
-sprite_ranking = Sprite("Ranking", image_data=ranking)
-sprite_hint = Sprite("Hint", image_data=hint)
-sprite_menu = Sprite("Damn it, Hakisa! Just play!", image_data=menu)
 import enum
 
 
@@ -192,28 +181,13 @@ class SerpentTenshi2GameAgent(GameAgent):
             }
         ]
 
-        self.agent = RainbowDQNAgent("Tenshi", game_inputs=self.game_inputs)
-        
+        self.agent = RainbowDQNAgent("Tenshi", game_inputs=self.game_inputs)    
         
         
         #self.agent.add_human_observations_to_replay_memory()
         
 
     def handle_play(self, game_frame):
-        import pyautogui 
-        search_retry = sprite_locator.locate(sprite=sprite_retry, game_frame=game_frame)
-        search_hint = sprite_locator.locate(sprite=sprite_hint, game_frame=game_frame)
-        if search_retry != None or search_hint != None:
-            pyautogui.press('z')
-        
-        search_ranking = sprite_locator.locate(sprite=sprite_ranking, game_frame=game_frame)
-        if search_ranking != None:
-            pyautogui.press('Enter')
-
-        search_menu = sprite_locator.locate(sprite=sprite_menu, game_frame=game_frame)
-        if search_menu != None:
-            pyautogui.press('Enter', presses=3, interval=1.5)
-            time.sleep(2.5)
 
         hp = self._measure_hp(game_frame)
         aura = self._measure_aura(game_frame)
@@ -239,7 +213,7 @@ class SerpentTenshi2GameAgent(GameAgent):
         agent_actions = self.agent.generate_actions(frame_buffer)
 
         Environment.perform_input(self, actions=agent_actions)
-        #time.sleep(1)
+        #time.sleep(1) - Reduces Efficiency
         #Environment.clear_input(self)
 
         # Saving model each N steps:
